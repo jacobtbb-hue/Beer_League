@@ -41,6 +41,28 @@ select { font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px soli
 .chart-wrap { position: relative; width: 100%; height: 420px; }
 
 #errorMsg { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #856404; margin-bottom: 16px; display: none; }
+
+/* ── Podium ── */
+.podium-card { background: #fff; border-radius: 12px; border: 1px solid #e8e5df; padding: 20px 20px 24px; margin-bottom: 20px; }
+.podium-card h2 { font-size: 13px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
+.podium { display: flex; align-items: flex-end; justify-content: center; gap: 12px; height: 180px; }
+.podium-slot { display: flex; flex-direction: column; align-items: center; flex: 1; max-width: 140px; }
+.podium-avatar-wrap { position: relative; margin-bottom: 8px; }
+.podium-avatar { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 3px solid #ccc; display: block; transition: all 0.4s ease; }
+.podium-slot.p1 .podium-avatar { width: 68px; height: 68px; border-color: #FFD700; box-shadow: 0 0 0 3px #FFF8DC; }
+.podium-slot.p2 .podium-avatar { border-color: #C0C0C0; box-shadow: 0 0 0 3px #f0f0f0; }
+.podium-slot.p3 .podium-avatar { border-color: #CD7F32; box-shadow: 0 0 0 3px #fdf3e7; }
+.podium-medal { position: absolute; bottom: -4px; right: -4px; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; border: 2px solid #fff; }
+.p1 .podium-medal { background: #FFD700; color: #7a5f00; }
+.p2 .podium-medal { background: #A8A8A8; }
+.p3 .podium-medal { background: #CD7F32; }
+.podium-name { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 3px; text-align: center; }
+.podium-score { font-size: 12px; color: #999; margin-bottom: 8px; text-align: center; }
+.podium-bar-wrap { width: 100%; display: flex; justify-content: center; }
+.podium-bar { width: 70%; border-radius: 6px 6px 0 0; transition: height 0.4s ease; }
+.p1 .podium-bar { background: linear-gradient(180deg, #FFE566, #FFD700); min-height: 80px; }
+.p2 .podium-bar { background: linear-gradient(180deg, #d8d8d8, #C0C0C0); min-height: 55px; }
+.p3 .podium-bar { background: linear-gradient(180deg, #dfa060, #CD7F32); min-height: 35px; }
 </style>
 </head>
 <body>
@@ -71,6 +93,39 @@ select { font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px soli
       </select>
     </div>
     <div class="chart-wrap"><canvas id="beerChart"></canvas></div>
+  </div>
+
+  <div class="podium-card">
+    <h2>🏆 Pall</h2>
+    <div class="podium" id="podium">
+      <div class="podium-slot p2" id="podium-2">
+        <div class="podium-avatar-wrap">
+          <img class="podium-avatar" id="pa-2" src="" alt="">
+          <span class="podium-medal">2</span>
+        </div>
+        <div class="podium-name" id="pn-2">–</div>
+        <div class="podium-score" id="ps-2">–</div>
+        <div class="podium-bar-wrap"><div class="podium-bar" id="pb-2" style="height:55px"></div></div>
+      </div>
+      <div class="podium-slot p1" id="podium-1">
+        <div class="podium-avatar-wrap">
+          <img class="podium-avatar" id="pa-1" src="" alt="">
+          <span class="podium-medal">1</span>
+        </div>
+        <div class="podium-name" id="pn-1">–</div>
+        <div class="podium-score" id="ps-1">–</div>
+        <div class="podium-bar-wrap"><div class="podium-bar" id="pb-1" style="height:80px"></div></div>
+      </div>
+      <div class="podium-slot p3" id="podium-3">
+        <div class="podium-avatar-wrap">
+          <img class="podium-avatar" id="pa-3" src="" alt="">
+          <span class="podium-medal">3</span>
+        </div>
+        <div class="podium-name" id="pn-3">–</div>
+        <div class="podium-score" id="ps-3">–</div>
+        <div class="podium-bar-wrap"><div class="podium-bar" id="pb-3" style="height:35px"></div></div>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -276,11 +331,14 @@ function initChart() {
     }
   });
 
+  firstReached = buildFirstReached(fullCum, allDates);
+
   const bar = document.getElementById("progressBar");
   bar.max = maxIdx;
   bar.value = maxIdx;
   document.getElementById("dateLabel").textContent = allDates[maxIdx];
   buildLegend();
+  renderPodium(maxIdx);
 }
 
 function updateChart(frame) {
@@ -292,6 +350,7 @@ function updateChart(frame) {
   chart.update("none");
   document.getElementById("dateLabel").textContent = allDates[frame];
   document.getElementById("progressBar").value = frame;
+  renderPodium(frame);
 }
 
 // ── Legend ───────────────────────────────────────────────────
@@ -314,7 +373,59 @@ function buildLegend() {
   });
 }
 
-// ── Play controls ────────────────────────────────────────────
+// ── Podium ───────────────────────────────────────────────────
+// firstReached[p][score] = frame index when p first reached that score
+// We precompute for tie-breaking: earlier frame = wins tie
+function buildFirstReached(cum, dates) {
+  const first = {};
+  PERSONS.forEach(p => {
+    first[p] = {};
+    cum[p].forEach((v, i) => {
+      if (!(v in first[p])) first[p][v] = i;
+    });
+  });
+  return first;
+}
+let firstReached = {};
+
+function renderPodium(frame) {
+  const scores = PERSONS.map(p => ({
+    name: p,
+    val: fullCum[p][frame],
+    firstAt: firstReached[p] ? (firstReached[p][fullCum[p][frame]] ?? frame) : frame
+  }));
+
+  // Sort: highest val first, tie-break by firstAt (lower = earlier = wins)
+  scores.sort((a, b) => b.val - a.val || a.firstAt - b.firstAt);
+
+  const top3 = scores.slice(0, 3);
+  const maxVal = top3[0].val || 1;
+
+  // Slot order on screen: 2nd, 1st, 3rd
+  const slots = [
+    { slot: 1, rank: 1, data: top3[0] },
+    { slot: 2, rank: 2, data: top3[1] },
+    { slot: 3, rank: 3, data: top3[2] },
+  ];
+
+  const barHeights = { 1: 80, 2: 55, 3: 35 };
+
+  slots.forEach(({ rank, data }) => {
+    if (!data) return;
+    document.getElementById(`pa-${rank}`).src = avatarData[data.name] || "";
+    document.getElementById(`pa-${rank}`).alt = data.name;
+    document.getElementById(`pn-${rank}`).textContent = data.name;
+    document.getElementById(`ps-${rank}`).textContent = data.val + " öl";
+    // Scale bar height proportionally to score, min = base height
+    const base = barHeights[rank];
+    const scaled = data.val > 0 ? Math.max(base, Math.round((data.val / maxVal) * 100)) : base;
+    document.getElementById(`pb-${rank}`).style.height = scaled + "px";
+    // Color avatar border to person color
+    document.getElementById(`pa-${rank}`).style.borderColor = COLORS[data.name];
+  });
+}
+
+
 function getSpeed() { return parseInt(document.getElementById("speedSelect").value); }
 function startPlay() {
   if (currentFrame >= allDates.length - 1) updateChart(0);
