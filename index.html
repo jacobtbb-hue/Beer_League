@@ -27,7 +27,7 @@ main { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
 
 #legend { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
 .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #555; cursor: pointer; user-select: none; padding: 6px 10px; border-radius: 12px; border: 1px solid #e8e5df; background: #fff; transition: opacity 0.2s; }
-.legend-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid transparent; }
+.legend-avatar { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid transparent; }
 .legend-item.dimmed { opacity: 0.3; }
 
 #controls { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -404,9 +404,17 @@ function getVal(p, pos) {
 }
 
 function calcYMaxAtPos(pos) {
+  // Find current highest value
   let hi = 0;
-  PERSONS.forEach(p => { if (!hiddenState[p]) { const v = getVal(p, pos); if (v > hi) hi = v; } });
-  return Math.ceil(Math.max(MIN_Y, hi) / Y_STEP) * Y_STEP;
+  PERSONS.forEach(p => {
+    if (!hiddenState[p]) { const v = getVal(p, pos); if (v > hi) hi = v; }
+  });
+  // Round up to next Y_STEP, but trigger the next step when within 5 units of current ceiling
+  const currentCeil = Math.ceil(Math.max(MIN_Y, hi) / Y_STEP) * Y_STEP;
+  if (currentCeil - hi <= 5) {
+    return currentCeil + Y_STEP;
+  }
+  return currentCeil;
 }
 
 function drawAtPos(pos) {
