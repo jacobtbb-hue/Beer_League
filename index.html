@@ -127,9 +127,22 @@ function parseCSV(text) {
   const daily = {};
   PERSONS.forEach(p => daily[p] = []);
 
+  // Build today as DD-MM-YYYY for comparison
+  const now = new Date();
+  const todayStr = String(now.getDate()).padStart(2,"0") + "-" +
+                   String(now.getMonth()+1).padStart(2,"0") + "-" +
+                   now.getFullYear();
+  function dateToNum(d) {
+    // d = "DD-MM-YYYY" → sortable number YYYYMMDD
+    const [dd,mm,yyyy] = d.split("-");
+    return parseInt(yyyy+mm+dd);
+  }
+  const todayNum = dateToNum(todayStr);
+
   rows.forEach(row => {
     if (!row[2] || row[2].length < 6) return; // skip empty date rows
     const dateRaw = row[2]; // col C
+    if (dateToNum(dateRaw) > todayNum) return; // skip future dates
     dates.push(dateRaw);
     PERSONS.forEach(p => {
       const val = parseFloat(row[PERSON_COLS[p]]) || 0;
