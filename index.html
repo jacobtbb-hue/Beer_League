@@ -371,7 +371,8 @@ function initChart() {
     }
   });
 
-  firstReached = buildFirstReached(fullCum, allDates);
+  firstReached = {};
+  buildRankHistory(fullCum, maxIdx);
 
   const bar = document.getElementById("progressBar");
   bar.max   = maxIdx;
@@ -497,53 +498,55 @@ function buildLegend() {
 }
 
 // ── Podium ───────────────────────────────────────────────────
-// firstReached[p][score] = frame index when p first reached that score
-// We precompute for tie-breaking: earlier frame = wins tie
-function buildFirstReached(cum, dates) {
-  const first = {};
-  PERSONS.forEach(p => {
-    first[p] = {};
-    cum[p].forEach((v, i) => {
-      if (!(v in first[p])) first[p][v] = i;
-    });
-  });
-  return first;
+// ── Podium ───────────────────────────────────────────────────
+// Tie-break rule: if two persons have the same value at frame F,
+// whoever was ranked higher at frame F-1 stays higher.
+// We resolve this recursively: sort at each frame based on previous frame's order.
+
+let rankHistory = []; // rankHistory[frame] = { person: rank (0=best) }
+
+function buildRankHistory(cum, n) {
+  rankHistory = [];
+  const persons = PERSONS;
+  for (let f = 0; f <= n; f++) {
+    const prevRanks = f > 0 ? rankHistory[f - 1] : null;
+    const scores = persons.map(p => ({
+      name: p,
+      val: cum[p][f],
+      prevRank: prevRanks ? prevRanks[p] : 999
+    }));
+    // Sort: highest val first, tie-break by prevRank (lower = was higher before)
+    scores.sort((a, b) => b.val - a.val || a.prevRank - b.prevRank);
+    const ranks = {};
+    scores.forEach((s, i) => { ranks[s.name] = i; });
+    rankHistory.push(ranks);
+  }
 }
-let firstReached = {};
 
 function renderPodium(frame) {
-  const scores = PERSONS.map(p => ({
+  if (!rankHistory.length) return;
+  const clampedFrame = Math.min(Math.round(frame), rankHistory.length - 1);
+  const ranks = rankHistory[clampedFrame];
+
+  const sorted = PERSONS.map(p => ({
     name: p,
-    val: fullCum[p][frame],
-    firstAt: firstReached[p] ? (firstReached[p][fullCum[p][frame]] ?? frame) : frame
-  }));
+    val: fullCum[p][clampedFrame],
+    rank: ranks[p]
+  })).sort((a, b) => a.rank - b.rank);
 
-  // Sort: highest val first, tie-break by firstAt (lower = earlier = wins)
-  scores.sort((a, b) => b.val - a.val || a.firstAt - b.firstAt);
-
-  const top3 = scores.slice(0, 3);
+  const top3  = sorted.slice(0, 3);
   const maxVal = top3[0].val || 1;
+  const barHeights = { 0: 80, 1: 55, 2: 35 };
 
-  // Slot order on screen: 2nd, 1st, 3rd
-  const slots = [
-    { slot: 1, rank: 1, data: top3[0] },
-    { slot: 2, rank: 2, data: top3[1] },
-    { slot: 3, rank: 3, data: top3[2] },
-  ];
-
-  const barHeights = { 1: 80, 2: 55, 3: 35 };
-
-  slots.forEach(({ rank, data }) => {
-    if (!data) return;
+  top3.forEach((data, idx) => {
+    const rank = idx + 1; // 1,2,3
     document.getElementById(`pa-${rank}`).src = avatarData[data.name] || "";
     document.getElementById(`pa-${rank}`).alt = data.name;
     document.getElementById(`pn-${rank}`).textContent = data.name;
     document.getElementById(`ps-${rank}`).textContent = data.val + " öl";
-    // Scale bar height proportionally to score, min = base height
-    const base = barHeights[rank];
+    const base   = barHeights[idx];
     const scaled = data.val > 0 ? Math.max(base, Math.round((data.val / maxVal) * 100)) : base;
     document.getElementById(`pb-${rank}`).style.height = scaled + "px";
-    // Color avatar border to person color
     document.getElementById(`pa-${rank}`).style.borderColor = COLORS[data.name];
   });
 }
