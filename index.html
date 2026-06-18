@@ -84,7 +84,7 @@ select { font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px soli
     <div id="legend"></div>
     <div id="controls">
       <button id="playBtn">▶ Spela</button>
-      <div id="progressWrap"><input type="range" id="progressBar" min="0" max="0" value="0" step="1"></div>
+      <div id="progressWrap"><input type="range" id="progressBar" min="0" max="0" value="0" step="0.01"></div>
       <span id="dateLabel">–</span>
       <select id="speedSelect">
         <option value="700">Långsam</option>
@@ -334,107 +334,104 @@ function initChart() {
   firstReached = buildFirstReached(fullCum, allDates);
 
   const bar = document.getElementById("progressBar");
-  bar.max = maxIdx;
+  bar.max   = maxIdx;
   bar.value = maxIdx;
+  playhead  = maxIdx;
   document.getElementById("dateLabel").textContent = allDates[maxIdx];
   buildLegend();
   renderPodium(maxIdx);
 }
 
-// ── Smooth tween system ──────────────────────────────────────
-// Instead of jumping between frames we interpolate displayed values
-// between fromFrame and toFrame over TWEEN_MS milliseconds.
-const TWEEN_MS = 300;
-let tweenRAF = null;
-let tweenFrom = null; // snapshot of values at tween start
-let tweenTo   = null; // target frame index
-let tweenStart = null;
+// ── Continuous RAF animation system ──────────────────────────
+// playhead is a float: e.g. 3.7 = 70% of the way from day 3 to day 4
+// This gives perfectly smooth interpolation with no per-day pauses.
+let playhead  = 0;
+let rafId     = null;
+let lastTs    = null;
+let isPlaying = false;
 
-function easeInOut(t) {
-  return t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+// days/second based on speed selector (700ms/day = slow, 120ms/day = fast)
+function getDaysPerSec() { return 1000 / parseInt(document.getElementById("speedSelect").value); }
+
+// Linearly interpolate value for person p at float playhead pos
+function getVal(p, pos) {
+  const maxI = allDates.length - 1;
+  const i    = Math.floor(pos);
+  const frac = pos - i;
+  if (i >= maxI) return fullCum[p][maxI];
+  if (i < 0)     return fullCum[p][0];
+  return fullCum[p][i] + (fullCum[p][i + 1] - fullCum[p][i]) * frac;
 }
 
-function getFrameValues(frame) {
-  // Returns { personName: value } for all persons at a given frame
-  const out = {};
-  PERSONS.forEach(p => { out[p] = fullCum[p][frame]; });
-  return out;
+function calcYMaxAtPos(pos) {
+  let hi = 0;
+  PERSONS.forEach(p => { if (!hiddenState[p]) { const v = getVal(p, pos); if (v > hi) hi = v; } });
+  return Math.ceil(Math.max(MIN_Y, hi) / Y_STEP) * Y_STEP;
 }
 
-function applyInterpolated(fromVals, toVals, progress, toFrame) {
-  // Build interpolated data arrays for chart
+function drawAtPos(pos) {
+  const maxI = allDates.length - 1;
+  const clamp = Math.min(Math.max(pos, 0), maxI);
+  const fi    = Math.floor(clamp);
+
+  // All days up to fi are exact, fi+1 is the interpolated tip, rest null
   chart.data.datasets.forEach(ds => {
     const p = ds.label;
-    const from = fromVals[p];
-    const to   = toVals[p];
-    const interp = from + (to - from) * progress;
-    // Show all points up to toFrame, last one is interpolated
-    ds.data = fullCum[p].map((v, i) => {
-      if (i < toFrame) return v;
-      if (i === toFrame) return interp;
+    ds.data = allDates.map((_, i) => {
+      if (i < fi)  return fullCum[p][i];
+      if (i === fi) return getVal(p, clamp);
       return null;
     });
   });
 
-  // Interpolate y-axis max
-  const fromMax = calcYMaxForVals(fromVals);
-  const toMax   = calcYMaxForVals(toVals);
-  const interpMax = fromMax + (toMax - fromMax) * progress;
-  chart.options.scales.y.max = Math.ceil(interpMax / Y_STEP) * Y_STEP || Y_STEP;
-
+  chart.options.scales.y.max = calcYMaxAtPos(clamp);
   chart.update("none");
 
-  // Interpolate podium scores for display
-  renderPodiumInterpolated(toVals, progress, toFrame);
+  // Show the nearest date label
+  const labelIdx = clamp - fi > 0.5 && fi < maxI ? fi + 1 : fi;
+  document.getElementById("dateLabel").textContent = allDates[labelIdx];
+  document.getElementById("progressBar").value = clamp;
+  currentFrame = fi;
+
+  renderPodium(Math.round(clamp));
 }
 
-function calcYMaxForVals(vals) {
-  let hi = 0;
-  PERSONS.forEach(p => { if (!hiddenState[p] && vals[p] > hi) hi = vals[p]; });
-  return Math.ceil(Math.max(MIN_Y, hi) / Y_STEP) * Y_STEP;
-}
+function animLoop(ts) {
+  if (!lastTs) lastTs = ts;
+  const dt = (ts - lastTs) / 1000;
+  lastTs = ts;
 
-function renderPodiumInterpolated(toVals, progress, toFrame) {
-  // Use toFrame values for ranking but interpolate bar heights
-  renderPodium(toFrame);
-}
+  playhead += dt * getDaysPerSec();
 
-function tweenTo_frame(frame) {
-  // Cancel any running tween
-  if (tweenRAF) { cancelAnimationFrame(tweenRAF); tweenRAF = null; }
-
-  const fromFrame = currentFrame;
-  if (fromFrame === frame) return;
-
-  const fromVals = getFrameValues(fromFrame);
-  const toVals   = getFrameValues(frame);
-  tweenStart = performance.now();
-
-  document.getElementById("dateLabel").textContent = allDates[frame];
-  document.getElementById("progressBar").value = frame;
-  currentFrame = frame;
-
-  function tick(now) {
-    const elapsed = now - tweenStart;
-    const raw = Math.min(elapsed / TWEEN_MS, 1);
-    const t = easeInOut(raw);
-    applyInterpolated(fromVals, toVals, t, frame);
-    if (raw < 1) {
-      tweenRAF = requestAnimationFrame(tick);
-    } else {
-      tweenRAF = null;
-      // Snap to exact values at end
-      chart.data.datasets.forEach(ds => { ds.data = makeData(ds.label, frame); });
-      chart.options.scales.y.max = calcYMax(frame);
-      chart.update("none");
-      renderPodium(frame);
-    }
+  const maxI = allDates.length - 1;
+  if (playhead >= maxI) {
+    playhead = maxI;
+    drawAtPos(playhead);
+    stopPlay();
+    return;
   }
-  tweenRAF = requestAnimationFrame(tick);
+
+  drawAtPos(playhead);
+  rafId = requestAnimationFrame(animLoop);
+}
+
+function startPlay() {
+  if (playhead >= allDates.length - 1) { playhead = 0; drawAtPos(0); }
+  isPlaying = true; playing = true; lastTs = null;
+  document.getElementById("playBtn").textContent = "⏸ Pausa";
+  rafId = requestAnimationFrame(animLoop);
+}
+
+function stopPlay() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  isPlaying = false; playing = false; lastTs = null;
+  document.getElementById("playBtn").textContent = "▶ Spela";
 }
 
 function updateChart(frame) {
-  tweenTo_frame(frame);
+  stopPlay();
+  playhead = frame;
+  drawAtPos(frame);
 }
 
 // ── Legend ───────────────────────────────────────────────────
@@ -510,32 +507,12 @@ function renderPodium(frame) {
 }
 
 
-function getSpeed() { return parseInt(document.getElementById("speedSelect").value); }
-function startPlay() {
-  if (currentFrame >= allDates.length - 1) {
-    currentFrame = 0;
-    chart.data.datasets.forEach(ds => { ds.data = makeData(ds.label, 0); });
-    chart.update("none");
-    renderPodium(0);
-  }
-  playing = true;
-  document.getElementById("playBtn").textContent = "⏸ Pausa";
-  function step() {
-    if (!playing) return;
-    const next = currentFrame + 1;
-    if (next >= allDates.length) { stopPlay(); return; }
-    tweenTo_frame(next);
-    // Wait for speed + tween duration before next step
-    timer = setTimeout(step, getSpeed() + TWEEN_MS);
-  }
-  timer = setTimeout(step, 80);
-}
-function stopPlay() {
-  playing = false; clearTimeout(timer);
-  document.getElementById("playBtn").textContent = "▶ Spela";
-}
-document.getElementById("playBtn").addEventListener("click", () => playing ? stopPlay() : startPlay());
-document.getElementById("progressBar").addEventListener("input", e => { stopPlay(); updateChart(parseInt(e.target.value)); });
+document.getElementById("playBtn").addEventListener("click", () => isPlaying ? stopPlay() : startPlay());
+document.getElementById("progressBar").addEventListener("input", e => {
+  stopPlay();
+  playhead = parseFloat(e.target.value);
+  drawAtPos(playhead);
+});
 
 // ── Data fetching ────────────────────────────────────────────
 async function fetchData() {
