@@ -63,6 +63,40 @@ select { font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px soli
 .p1 .podium-bar { background: linear-gradient(180deg, #FFE566, #FFD700); min-height: 80px; }
 .p2 .podium-bar { background: linear-gradient(180deg, #d8d8d8, #C0C0C0); min-height: 55px; }
 .p3 .podium-bar { background: linear-gradient(180deg, #dfa060, #CD7F32); min-height: 35px; }
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+  header { padding: 12px 16px; }
+  header h1 { font-size: 15px; }
+  main { padding: 12px 10px; }
+
+  .stats { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat-card { padding: 10px 12px; }
+  .stat-card .value { font-size: 18px; }
+
+  .chart-card { padding: 12px 10px; }
+  .chart-wrap { height: 280px; }
+
+  /* Legend: 2 cols, smaller avatars, no overflow */
+  #legend { grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px; }
+  .legend-avatar { width: 36px; height: 36px; }
+  .legend-item { padding: 5px 8px; font-size: 12px; gap: 7px; }
+
+  /* Controls: two rows – play+slider on top, date+speed on bottom */
+  #controls { flex-wrap: wrap; gap: 6px; }
+  #playBtn { padding: 6px 14px; font-size: 13px; }
+  #progressWrap { flex: 1; min-width: 100px; }
+  #dateLabel { font-size: 12px; min-width: 80px; }
+  select { font-size: 12px; padding: 4px 6px; }
+
+  .podium-card { padding: 14px 10px 16px; }
+  .podium { gap: 6px; height: 150px; }
+  .podium-avatar { width: 40px; height: 40px; }
+  .podium-slot.p1 .podium-avatar { width: 50px; height: 50px; }
+  .podium-name { font-size: 11px; }
+  .podium-score { font-size: 10px; margin-bottom: 4px; }
+  .podium-medal { width: 18px; height: 18px; font-size: 10px; }
+}
 </style>
 </head>
 <body>
@@ -149,6 +183,7 @@ const PERSONS = ["Adam","Anton","Daniel","Jacob","Jesper","Joakim","Niklas","Car
 const COLORS  = {Adam:"#378ADD",Anton:"#D85A30",Daniel:"#EF9F27",Jacob:"#1D9E75",Jesper:"#D4537E",Joakim:"#7F77DD",Niklas:"#639922",Carl:"#888780"};
 const DASHES  = {Adam:[],Anton:[6,3],Daniel:[3,3],Jacob:[],Jesper:[8,2],Joakim:[4,4],Niklas:[2,2],Carl:[10,3,2,3]};
 const AVATAR_R = 20;
+function getAvatarR() { return window.innerWidth < 600 ? 13 : AVATAR_R; }
 const MIN_Y = 25, Y_STEP = 10;
 
 // Col index map (0-based): A=0,B=1,C=2,D=3,E=4,F=5,G=6,H=7,I=8,J=9,K=10
@@ -265,7 +300,7 @@ const avatarBubblePlugin = {
       }
       if (!lastPt) return;
       const { x, y } = lastPt;
-      const r = AVATAR_R;
+      const r = getAvatarR();
       const img = avatarImgs[ds.label];
       if (!img.complete) return;
       ctx.save();
@@ -331,7 +366,7 @@ function initChart() {
     options: {
       responsive: true, maintainAspectRatio: false,
       animation: false,
-      layout: { padding: { right: 30, top: 28 } },
+      layout: { padding: { right: window.innerWidth < 600 ? 20 : 30, top: 28 } },
       interaction: { mode: "index", intersect: false },
       plugins: {
         legend: { display: false },
