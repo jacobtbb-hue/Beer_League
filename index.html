@@ -341,16 +341,100 @@ function initChart() {
   renderPodium(maxIdx);
 }
 
-function updateChart(frame) {
-  currentFrame = frame;
+// ── Smooth tween system ──────────────────────────────────────
+// Instead of jumping between frames we interpolate displayed values
+// between fromFrame and toFrame over TWEEN_MS milliseconds.
+const TWEEN_MS = 300;
+let tweenRAF = null;
+let tweenFrom = null; // snapshot of values at tween start
+let tweenTo   = null; // target frame index
+let tweenStart = null;
+
+function easeInOut(t) {
+  return t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+}
+
+function getFrameValues(frame) {
+  // Returns { personName: value } for all persons at a given frame
+  const out = {};
+  PERSONS.forEach(p => { out[p] = fullCum[p][frame]; });
+  return out;
+}
+
+function applyInterpolated(fromVals, toVals, progress, toFrame) {
+  // Build interpolated data arrays for chart
   chart.data.datasets.forEach(ds => {
-    ds.data = makeData(ds.label, frame);
+    const p = ds.label;
+    const from = fromVals[p];
+    const to   = toVals[p];
+    const interp = from + (to - from) * progress;
+    // Show all points up to toFrame, last one is interpolated
+    ds.data = fullCum[p].map((v, i) => {
+      if (i < toFrame) return v;
+      if (i === toFrame) return interp;
+      return null;
+    });
   });
-  chart.options.scales.y.max = calcYMax(frame);
+
+  // Interpolate y-axis max
+  const fromMax = calcYMaxForVals(fromVals);
+  const toMax   = calcYMaxForVals(toVals);
+  const interpMax = fromMax + (toMax - fromMax) * progress;
+  chart.options.scales.y.max = Math.ceil(interpMax / Y_STEP) * Y_STEP || Y_STEP;
+
   chart.update("none");
+
+  // Interpolate podium scores for display
+  renderPodiumInterpolated(toVals, progress, toFrame);
+}
+
+function calcYMaxForVals(vals) {
+  let hi = 0;
+  PERSONS.forEach(p => { if (!hiddenState[p] && vals[p] > hi) hi = vals[p]; });
+  return Math.ceil(Math.max(MIN_Y, hi) / Y_STEP) * Y_STEP;
+}
+
+function renderPodiumInterpolated(toVals, progress, toFrame) {
+  // Use toFrame values for ranking but interpolate bar heights
+  renderPodium(toFrame);
+}
+
+function tweenTo_frame(frame) {
+  // Cancel any running tween
+  if (tweenRAF) { cancelAnimationFrame(tweenRAF); tweenRAF = null; }
+
+  const fromFrame = currentFrame;
+  if (fromFrame === frame) return;
+
+  const fromVals = getFrameValues(fromFrame);
+  const toVals   = getFrameValues(frame);
+  tweenStart = performance.now();
+
   document.getElementById("dateLabel").textContent = allDates[frame];
   document.getElementById("progressBar").value = frame;
-  renderPodium(frame);
+  currentFrame = frame;
+
+  function tick(now) {
+    const elapsed = now - tweenStart;
+    const raw = Math.min(elapsed / TWEEN_MS, 1);
+    const t = easeInOut(raw);
+    applyInterpolated(fromVals, toVals, t, frame);
+    if (raw < 1) {
+      tweenRAF = requestAnimationFrame(tick);
+    } else {
+      tweenRAF = null;
+      // Snap to exact values at end
+      chart.data.datasets.forEach(ds => { ds.data = makeData(ds.label, frame); });
+      chart.options.scales.y.max = calcYMax(frame);
+      chart.update("none");
+      renderPodium(frame);
+    }
+  }
+  tweenRAF = requestAnimationFrame(tick);
+}
+
+function updateChart(frame) {
+  tweenTo_frame(frame);
 }
 
 // ── Legend ───────────────────────────────────────────────────
@@ -428,17 +512,23 @@ function renderPodium(frame) {
 
 function getSpeed() { return parseInt(document.getElementById("speedSelect").value); }
 function startPlay() {
-  if (currentFrame >= allDates.length - 1) updateChart(0);
+  if (currentFrame >= allDates.length - 1) {
+    currentFrame = 0;
+    chart.data.datasets.forEach(ds => { ds.data = makeData(ds.label, 0); });
+    chart.update("none");
+    renderPodium(0);
+  }
   playing = true;
   document.getElementById("playBtn").textContent = "⏸ Pausa";
   function step() {
     if (!playing) return;
     const next = currentFrame + 1;
     if (next >= allDates.length) { stopPlay(); return; }
-    updateChart(next);
-    timer = setTimeout(step, getSpeed());
+    tweenTo_frame(next);
+    // Wait for speed + tween duration before next step
+    timer = setTimeout(step, getSpeed() + TWEEN_MS);
   }
-  timer = setTimeout(step, getSpeed());
+  timer = setTimeout(step, 80);
 }
 function stopPlay() {
   playing = false; clearTimeout(timer);
